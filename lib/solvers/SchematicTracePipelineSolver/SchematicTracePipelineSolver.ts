@@ -19,6 +19,7 @@ import { correctPinsInsideChips } from "./correctPinsInsideChip"
 import { expandChipsToFitPins } from "./expandChipsToFitPins"
 import { LongDistancePairSolver } from "../LongDistancePairSolver/LongDistancePairSolver"
 import { MergedNetLabelObstacleSolver } from "../TraceLabelOverlapAvoidanceSolver/sub-solvers/LabelMergingSolver/LabelMergingSolver"
+import { CombineSameNetTraceSegmentsSolver } from "../CombineSameNetTraceSegmentsSolver/CombineSameNetTraceSegmentsSolver"
 import { TraceCleanupSolver } from "../TraceCleanupSolver/TraceCleanupSolver"
 
 type PipelineStep<T extends new (...args: any[]) => BaseSolver> = {
@@ -68,6 +69,7 @@ export class SchematicTracePipelineSolver extends BaseSolver {
   netLabelPlacementSolver?: NetLabelPlacementSolver
   labelMergingSolver?: MergedNetLabelObstacleSolver
   traceLabelOverlapAvoidanceSolver?: TraceLabelOverlapAvoidanceSolver
+  combineSameNetTraceSegmentsSolver?: CombineSameNetTraceSegmentsSolver
   traceCleanupSolver?: TraceCleanupSolver
 
   startTimeOfPhase: Record<string, number>
@@ -188,9 +190,21 @@ export class SchematicTracePipelineSolver extends BaseSolver {
         ]
       },
     ),
-    definePipelineStep("traceCleanupSolver", TraceCleanupSolver, (instance) => {
+    definePipelineStep("combineSameNetTraceSegmentsSolver", CombineSameNetTraceSegmentsSolver, (instance) => {
       const prevSolverOutput =
         instance.traceLabelOverlapAvoidanceSolver!.getOutput()
+      const traces = prevSolverOutput.traces
+
+      return [
+        {
+          inputProblem: instance.inputProblem,
+          allTraces: traces,
+        },
+      ]
+    }),
+    definePipelineStep("traceCleanupSolver", TraceCleanupSolver, (instance) => {
+      const prevSolverOutput =
+        instance.combineSameNetTraceSegmentsSolver!.getOutput()
       const traces = prevSolverOutput.traces
 
       const labelMergingOutput =

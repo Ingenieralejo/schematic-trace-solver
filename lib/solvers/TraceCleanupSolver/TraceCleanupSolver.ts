@@ -7,6 +7,7 @@ import { BaseSolver } from "lib/solvers/BaseSolver/BaseSolver"
 import type { SolvedTracePath } from "lib/solvers/SchematicTraceLinesSolver/SchematicTraceLinesSolver"
 import { visualizeInputProblem } from "lib/solvers/SchematicTracePipelineSolver/visualizeInputProblem"
 import type { NetLabelPlacement } from "../NetLabelPlacementSolver/NetLabelPlacementSolver"
+import type { Point } from "@tscircuit/math-utils"
 
 /**
  * Defines the input structure for the TraceCleanupSolver.
@@ -29,7 +30,6 @@ type PipelineStep =
   | "minimizing_turns"
   | "balancing_l_shapes"
   | "untangling_traces"
-  | "merging_traces"
 
 /**
  * The TraceCleanupSolver is responsible for improving the aesthetics and readability of schematic traces.
@@ -44,7 +44,7 @@ export class TraceCleanupSolver extends BaseSolver {
   private outputTraces: SolvedTracePath[]
   private traceIdQueue: string[]
   private tracesMap: Map<string, SolvedTracePath>
-  private pipelineStep: PipelineStep = "merging_traces"
+  private pipelineStep: PipelineStep = "untangling_traces"
   private activeTraceId: string | null = null // New property
   override activeSubSolver: BaseSolver | null = null
 
@@ -77,9 +77,6 @@ export class TraceCleanupSolver extends BaseSolver {
     }
 
     switch (this.pipelineStep) {
-      case "merging_traces":
-        this._runMergeTracesStep()
-        break
       case "untangling_traces":
         this._runUntangleTracesStep()
         break
@@ -90,80 +87,6 @@ export class TraceCleanupSolver extends BaseSolver {
         this._runBalanceLShapesStep()
         break
     }
-  }
-
-  private _runMergeTracesStep() {
-    let mergedAny = false
-    const traces = [...this.outputTraces]
-    const newTraces: SolvedTracePath[] = []
-    const processedIndices = new Set<number>()
-
-    for (let i = 0; i < traces.length; i++) {
-      if (processedIndices.has(i)) continue
-      let currentTrace = traces[i]!
-      processedIndices.add(i)
-
-      let mergedThisRound = true
-      while (mergedThisRound) {
-        mergedThisRound = false
-        for (let j = 0; j < traces.length; j++) {
-          if (processedIndices.has(j)) continue
-          const otherTrace = traces[j]!
-
-          if (currentTrace.globalConnNetId !== otherTrace.globalConnNetId)
-            continue
-
-          // Check if they can be merged
-          const p1Start = currentTrace.tracePath[0]!
-          const p1End =
-            currentTrace.tracePath[currentTrace.tracePath.length - 1]!
-          const p2Start = otherTrace.tracePath[0]!
-          const p2End = otherTrace.tracePath[otherTrace.tracePath.length - 1]!
-
-          const dist = (pt1: any, pt2: any) =>
-            Math.sqrt((pt1.x - pt2.x) ** 2 + (pt1.y - pt2.y) ** 2)
-          const threshold = 0.05 // Standard threshold
-
-          let mergedPath: any[] | null = null
-          if (dist(p1End, p2Start) < threshold) {
-            mergedPath = [...currentTrace.tracePath, ...otherTrace.tracePath]
-          } else if (dist(p1Start, p2End) < threshold) {
-            mergedPath = [...otherTrace.tracePath, ...currentTrace.tracePath]
-          } else if (dist(p1End, p2End) < threshold) {
-            mergedPath = [
-              ...currentTrace.tracePath,
-              ...[...otherTrace.tracePath].reverse(),
-            ]
-          } else if (dist(p1Start, p2Start) < threshold) {
-            mergedPath = [
-              ...[...currentTrace.tracePath].reverse(),
-              ...otherTrace.tracePath,
-            ]
-          }
-
-          if (mergedPath) {
-            currentTrace = {
-              ...currentTrace,
-              tracePath: simplifyPath(mergedPath),
-              mspConnectionPairIds: [
-                ...currentTrace.mspConnectionPairIds,
-                ...otherTrace.mspConnectionPairIds,
-              ],
-              pinIds: [...currentTrace.pinIds, ...otherTrace.pinIds],
-            }
-            processedIndices.add(j)
-            mergedThisRound = true
-            mergedAny = true
-          }
-        }
-      }
-      newTraces.push(currentTrace)
-    }
-
-    this.outputTraces = newTraces
-    this.tracesMap = new Map(this.outputTraces.map((t) => [t.mspPairId, t]))
-    this.traceIdQueue = Array.from(this.tracesMap.keys())
-    this.pipelineStep = "untangling_traces"
   }
 
   private _runUntangleTracesStep() {
